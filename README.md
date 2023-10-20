@@ -1,2 +1,212 @@
-# dnam-workflow
-A workflow to automatically load, process, and QC DNAm data from Illumina arrays 
+# DNAm Workflow
+
+This workflow can be used to automatically load, process, and QC .idat-files from the Infinium "MethylationEPIC" or 450K array (Illumina Inc.). The following features are currently supported
+- Loading, Normalization, QC according to the R package <a href=https://bioconductor.org/packages/release/bioc/html/bigmelon.html>bigmelon</a> [1]
+- Filter out CpGs according to Zhou et al. for alignment to SNPs [2] and Nordlund et al. for alignment to multiple locations in the genome [3]
+- Filter out CpGs on the X- and Y-chromosomes
+- Celltype estimation for buccal, saliva, and blood samples according to <a href=https://rdrr.io/bioc/EpiDISH/>EpiDISH</a> [4]
+- Celltype estimation for brain (DLPFC) samples according to <a href=https://bioconductor.org/packages/release/bioc/html/minfi.html>Minfi</a> [5] using the <a href=https://bioconductor.org/packages/release/data/experiment/html/FlowSorted.DLPFC.450k.html>450K DLPFC</a> reference dataset [6]
+- Horvath multi-tissue DNAm age estimator and sex prediction [7]
+
+## Setting up the workflow
+
+### Dependencies
+- <a href=https://docs.conda.io/en/latest/miniconda.html>Miniconda V.4.8.3</a>
+- <a href=https://snakemake.readthedocs.io/en/stable/getting_started/installation.html>Snakemake V.5.4.0</a>
+- R V.3.6.1 
+- R-packages (can be installed via Miniconda)
+  -  <a href=https://bioconductor.org/packages/release/bioc/html/bigmelon.html>bigmelon</a>
+  -  <a href=https://rdrr.io/bioc/EpiDISH/>EpiDISH</a>
+  -  <a href=https://bioconductor.org/packages/release/bioc/html/minfi.html>Minfi</a> [5]
+  -  <a href=https://bioconductor.org/packages/IlluminaHumanMethylationEPICanno.ilm10b4.hg19/>IlluminaHumanMethylationEPICanno.ilm10b4.hg19</a>
+  -  <a href=https://www.bioconductor.org/packages/IlluminaHumanMethylationEPICmanifest/>IlluminaHumanMethylationEPICmanifest</a>
+  -  <a href=https://rdocumentation.org/packages/sqldf/versions/0.4-11>sqldf</a>
+  -  <a href=https://www.bioconductor.org/packages/ChAMP/>ChAMP</a>
+
+
+### Getting started
+Once you have all dependencies listed above installed on your system, download all files in this repository and place them in a location of your choice. Please note that some files are only properly downloaded when you clone the repository with git (the idat-files for the test dataset, the files for filtering CpG-probes, etc.). For this, you will need to have <a href=https://git-scm.com/book/de/v2/Erste-Schritte-Git-installieren>Git</a> installed on your device. Then, navigate to the location you want to download the workflow files to with *cd* in the git bash terminal, and copy-paste the following:
+
+```
+git clone https://github.com/yasminesom/dnam-workflow.git
+```
+
+### Testrun
+To test the workflow, the folder "testdataset" contains .idat files from a public dataset with the GEO accession ID <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE111165">GSE111165</a> in the folder "idats".
+
+In addition, it contains the file "config.yaml".
+
+```
+## Add parameters for the DNAm workflow here
+
+project: Testdata
+
+projectdir: testdataset
+
+celltype: buccal #choose brain, buccal, saliva, or blood
+```
+
+"project" is the name you would like to give your dataset. This name will be reflected in all files that are generated for consistent file-naming purposes.
+
+"projectdir" is currently a relative path to the "testdataset" directory (as it is a subdirectory of the snakemake workflow folder). For directories located somewhere else, the *full* path will need to be provided (e.g. /data/project_name/dataset)
+
+For "celltype", one of the four options (buccal, brain, saliva, or blood) can be supplied. Celltypes from other tissues are currently not supported. In the case of the testdataset, the samples (with the exception of GSM3024448 which is a brain sample) are buccal samples, so buccal is provided here as the tissue origin.
+
+#### Running the workflow on testdataset
+
+First, you will have to create some additional folders in your project folder ("testdataset"). Currently, only the "idats" folder is present there. Use the *cd* command to navigate to the testdataset folder, and then run the following commands:
+
+```
+mkdir gdsfiles
+mkdir outliers
+mkdir results
+```
+
+Then, navigate to the location with your DNAm workflow files with *cd* and run the following command:
+
+```
+bash run.sh
+```
+
+This will start the workflow, which should hopefully run through without any issues.
+
+#### Testdataset results
+After the workflow completed, the following results / outputs will be available to you:
+- results/Testdata_norm_filtered.csv contains all DNAm data after QC, normalization, and filtering in a csv-file. Note that, especially for larger datasets, csv-files can be incredibly slow and cumbersome to open in R, and it is advisable to access the data via the provided gds-files (which will be explained later).
+- results/Testdata_output.txt is a log that is generated by the workflow and details which steps have been performed, as well as some basic overview (outliers, number of CpG-probes before / after filtering). Please note in particular this line indicating that sample GSM3024448 was identified as an outlier. This is not surprising, as GSM3024448 is a brain sample whereas all other included samples are buccal samples.
+
+```
+[1] "Samples that are outliers:"
+[1] 1
+                                iqr   mv outliers
+GSM3024448_200607090075_R07C01 TRUE TRUE     TRUE
+```
+
+- results/Testdata_horvath_predictedsexandepiage.csv contains information about the predicted sex and DNAm age of each sample according to the multi-tissue DNAm age developed by Horvath [7].
+- results/Testdata_buccal_estimation.csv contains the cell-type estimates for each sample.
+- The remaining files in the results folder (Testdata_qualoutliers.txt, Testdata_outlyx.txt, Testdata_outliers.txt, Testdata_bscon.txt) are files that were generated by the workflow during QC, but are less interesting for the purpose of analyses.
+
+Also note that the outliers folder now contains the idat-files from GSM3024448, and these files cannot be found in the idats folder anymore, indicating that the workflow was run without GSM3024448 and all steps (QC, normalization, results files) are based on the samples after removal of this outlier.
+
+#### Testdataset gdsfiles
+To access the DNAm data via the gds-files, start an R session and use the following code:
+
+```
+library("bigmelon")
+setwd("PATH TO THE FOLDER CONTAINING GDS-FILES")
+gfile <- openfn.gds("gdsfilename.gds")
+beta <- read.gdsn(index.gdsn(gfile, "betas"))
+row.names(beta) <- read.gdsn(index.gdsn(gfile, "Probe_ID"))
+colnames(beta) <- read.gdsn(index.gdsn(gfile, "Sample_ID"))
+closefn.gds(gfile)
+```
+
+"beta" will then contain a matrix with all available samples and CpGs.
+
+## Running the workflow on your own data
+
+### Changing initial settings and running the workflow
+If the workflow ran through without issues in the testdataset, you are ready to run this workflow on your own DNAm data! Create a project directory for your DNAm data with the following structure
+
+- a folder with idat-files called "idats" (subdirectories in this folder are allowed. The script will search through all subdirectories for idat-files recursively)
+- three empty folders with the following names: "gdsfiles", "results", "outliers"
+- a config.yaml file (you can copy-paste the file from the testdataset and adjust the paramenters accordingly)
+
+Next, open the Snakefile and edit line 6 from
+
+```
+configfile: "testdataset/config.yaml"
+```
+
+to
+
+```
+configfile: "PATH TO PROJECT FOLDER/config.yaml"
+```
+
+With that, you should be all set to run the workflow with your own data using the following command:
+
+```
+bash run.sh
+```
+
+If it is a larger dataset and it therefore may take some time for it to run through fully, it is advisable to queue your job using the slurm system:
+
+```
+sbatch run.sh
+```
+
+### Additional settings
+#### Adjust allotted memory and time for cluster jobs
+For larger datasets, you may need to consider adjusting the time and memory allotted to the jobs. You can do that directly in the snakemake command in *run.sh* by adjusting the values for *--mem* and *--time*
+
+#### Adjust parameters for loading / QC
+The following parameters can be changed in *scripts/1_bigmelon_workflow1_loadqc.r* in lines 22-24
+- bsconv_threshold: The lowest bisulfite conversion efficiency value that is still deemed acceptable to be included (by default set to 80%)
+- outlier_threshold: Arbitrary value that can be changed to fine-tune outlier detection (by default set to 0.15); Note: This most often needs to be done if the DNAm samples are very heterogenous, but still need to be loaded together (i.e., cancer DNAm data, DNAm from different brain regions). In most settings, 0.15 should work just fine, however.
+- chunks: Number of samples that are loaded from idat files and appended to the gds-file in one step. Per default set to 10, but can be adjusted higher for larger datasets. In that case, more memory may be needed, however.
+
+# Additional Scripts / Information
+The folder script_templates contains some additional R-scripts for data adjustments, calculations of an EWAS, and plotting EWAS test statistics
+
+## Extract genotype information from EPIC array SNP probes
+extractgenotype_SNPprobes_EPICarray.r
+
+This script can be used to extract SNP genotype information from the SNP probes present on the EPIC array (as quality control probes). It also creates a .map and .ped file for ease of matching these genotypes with those generated by the GSA. The script needs the csv-file EPIC_SNPprobes_manifest.csv to work.
+
+## Correct DNAm data for cell-type compositions
+celltypecorrection_buccal_saliva.r and celltypecorrection_blood.r
+
+These scripts can be used to correct DNAm data directly for blood cell-type compositions
+
+## DNAm PCA
+pca_extractcpgs.r and pca.r
+
+First, use the script pca_extractcpgs.r to divide the genome into 100kb bins and pick one CpG at random from each bin. This aims to remove CpGs that are strongly correlated due to close proximity in the genome.
+Then, use this subset of uncorrelated CpGs to run the PCA with pca.r. This script also creates a scree plot for the PCA.
+
+## EWAS calculations
+
+### Binary phenotype
+ewas_binaryphenotype.r
+
+This script can be used to run an EWAS with a binary phenotype
+
+### Numeric phenotype
+ewas_numericphenotype.r
+
+This script can be used to run an EWAS with a continuous, numeric phenotype
+
+### Meta-analysis
+ewas_metaanalysis.r
+
+This script can be used to conduct a fixed-effect inverse-variance meta-analysis of EWAS test statistics. It is also possible to change the script to allow for random-effect meta-analyses (see comments in the script).
+
+## Plotting EWAS results
+manhattanplot.r and miamiplot.r 
+
+The script for the manhattan plot also contains QQ-plots and estimates of lambda.
+The script for the miami plot can be used to plot sex-stratified analyses (e.g., males vs. females)
+
+## Poly-Epigenetic Score (PES) Analyses
+PES_smoking_uncorrelatedprobes.r
+
+This script can be used to calculate PES based on given EWAS summary statistics with different P-value thresholds. The script is set to run the PES calculations for the current vs. never smoking phenotype from Joehanes et al. as an example, but it can also be used for other phenotypes / summary statistics.
+
+Working on: script to determine variance of phenotype explained by PES
+
+
+# References
+[1] Gorrie-Stone TJ, Smart MC, Saffari A, Malki K, Hannon E, Burrage J, Mill J, Kumari M, Schalkwyk LC (2018). “Bigmelon: tools for analysing large DNA methylation datasets.” Bioinformatics. doi: 10.1093/bioinformatics/bty713. 
+
+[2] Wanding Zhou, Peter W. Laird, Hui Shen, Comprehensive characterization, annotation and innovative use of Infinium DNA methylation BeadChip probes, Nucleic Acids Research, Volume 45, Issue 4, 28 February 2017, Page e22, https://doi.org/10.1093/nar/gkw967
+
+[3] Nordlund, J., Bäcklin, C.L., Wahlberg, P. et al. Genome-wide signatures of differential DNA methylation in pediatric acute lymphoblastic leukemia. Genome Biol 14, r105 (2013). https://doi.org/10.1186/gb-2013-14-9-r105
+
+[4] Teschendorff, A.E., Breeze, C.E., Zheng, S.C. et al. A comparison of reference-based algorithms for correcting cell-type heterogeneity in Epigenome-Wide Association Studies. BMC Bioinformatics 18, 105 (2017). https://doi.org/10.1186/s12859-017-1511-5
+
+[5] Aryee MJ, Jaffe AE, Corrada-Bravo H, Ladd-Acosta C, Feinberg AP, Hansen KD, Irizarry RA (2014). “Minfi: A flexible and comprehensive Bioconductor package for the analysis of Infinium DNA Methylation microarrays.” Bioinformatics, 30(10), 1363–1369. doi: 10.1093/bioinformatics/btu049. 
+
+[6] Jaffe AE, Kaminsky ZA (2021). FlowSorted.DLPFC.450k: Illumina HumanMethylation data on sorted frontal cortex cell populations. R package version 1.30.0. 
+
+[7] Horvath, S. DNA methylation age of human tissues and cell types. Genome Biol 14, 3156 (2013). https://doi.org/10.1186/gb-2013-14-10-r115
