@@ -1,0 +1,7 @@
+## Add parameters for the DNAm workflow here
+
+project: Testdata
+
+projectdir: testdataset
+
+celltype: buccal #choose brain, buccal, saliva, or blood

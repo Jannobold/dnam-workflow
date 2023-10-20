@@ -1,0 +1,84 @@
+# kate: syntax python;
+# Running loading, qc, normalization, and filtering with DNAm data
+# To use this workflow, do the following:
+#############################################
+
+configfile: "testdataset/config.yaml"
+
+#print(config)
+
+#  ## For convenience import all variables from config into global name space!!!
+for k,v in sorted(config.items()):
+   globals()[k] = v
+   print(k, "\t", v)
+
+# The final desired output files should go here
+rule all:
+    input:
+        expand("{projectdir}/gdsfiles/{project}_workingfile.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/gdsfiles/{project}_raw_unfiltered.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/gdsfiles/{project}_raw_filtered.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_output.txt",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_outlyx.txt",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_bscon.txt",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_outliers.txt",projectdir=projectdir,project=project),
+        expand("{projectdir}/gdsfiles/{project}_raw_filtered_all.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/gdsfiles/{project}_norm_unfiltered.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_qualoutliers.txt",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_norm_filtered.csv",projectdir=projectdir,project=project),
+        expand("{projectdir}/gdsfiles/{project}_norm_filtered.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_{celltype}_estimation.csv",projectdir=projectdir,project=project,celltype=celltype),
+        expand("{projectdir}/gdsfiles/{project}_norm_filtered.gds",projectdir=projectdir,project=project),
+        expand("{projectdir}/results/{project}_horvath_predictedsexandepiage.csv",projectdir=projectdir,project=project),
+
+#########################################################################################################################################
+
+rule load_QC:
+    input: 
+        input1=expand("{projectdir}/idats",projectdir=projectdir),
+        input2=expand("{projectdir}/outliers",projectdir=projectdir),
+    output: 
+        workinggds=expand("{projectdir}/gdsfiles/{project}_workingfile.gds",projectdir=projectdir,project=project),
+        rawunfiltered=expand("{projectdir}/gdsfiles/{project}_raw_unfiltered.gds",projectdir=projectdir,project=project),
+        rawfiltered=expand("{projectdir}/gdsfiles/{project}_raw_filtered.gds",projectdir=projectdir,project=project),
+        logfile=expand("{projectdir}/results/{project}_output.txt",projectdir=projectdir,project=project),
+        outlyx=expand("{projectdir}/results/{project}_outlyx.txt",projectdir=projectdir,project=project),
+        bscon=expand("{projectdir}/results/{project}_bscon.txt",projectdir=projectdir,project=project),
+        outliernames=expand("{projectdir}/results/{project}_outliers.txt",projectdir=projectdir,project=project),
+        rawfilteredall=expand("{projectdir}/gdsfiles/{project}_raw_filtered_all.gds",projectdir=projectdir,project=project),
+        normunfiltered=expand("{projectdir}/gdsfiles/{project}_norm_unfiltered.gds",projectdir=projectdir,project=project),
+        qualout=expand("{projectdir}/results/{project}_qualoutliers.txt",projectdir=projectdir,project=project),
+    shell:
+	    "bash scripts/outlier_looping.sh {output.logfile} {input.input1} {output.workinggds} {output.rawunfiltered} {output.rawfiltered} {output.outlyx} {output.bscon} {output.outliernames} {input.input2} {output.rawfilteredall} {output.normunfiltered} {output.qualout}"
+
+rule filter_CpG:
+    input:
+        zhou="probefilters/Zhouetal_epicannotation.tsv",
+        nord="probefilters/Nordlundetal_multihit.txt",
+        workinggds=expand("{projectdir}/gdsfiles/{project}_workingfile.gds",projectdir=projectdir,project=project),
+        logfile=expand("{projectdir}/results/{project}_output.txt",projectdir=projectdir,project=project),
+    output:
+        finalcsv=expand("{projectdir}/results/{project}_norm_filtered.csv",projectdir=projectdir,project=project),
+        normfiltered=expand("{projectdir}/gdsfiles/{project}_norm_filtered.gds",projectdir=projectdir,project=project),
+    shell:
+        "Rscript scripts/3_bigmelon_filterzhounordlundxy.r {input.logfile} {input.workinggds} {input.zhou} {input.nord} {output.finalcsv} {output.normfiltered}"
+
+rule celltype_estimation:
+    input:
+        workinggds=expand("{projectdir}/gdsfiles/{project}_workingfile.gds",projectdir=projectdir,project=project),
+        idatdir=expand("{projectdir}/idats",projectdir=projectdir),
+        logfile=expand("{projectdir}/results/{project}_output.txt",projectdir=projectdir,project=project),
+    output:
+        cellestimation=expand("{projectdir}/results/{project}_{celltype}_estimation.csv",projectdir=projectdir,project=project,celltype=celltype),
+        samplesheet=expand("{projectdir}/idats/{project}_samplesheet.csv",projectdir=projectdir,project=project),
+    shell:
+        "bash scripts/celltypeestimation.sh {celltype} {input.workinggds} {output.cellestimation} {input.idatdir} {input.logfile} {output.samplesheet}"
+
+rule horvath_sexage:
+    input:
+        rawunfiltered=expand("{projectdir}/gdsfiles/{project}_raw_unfiltered.gds",projectdir=projectdir,project=project),
+        logfile=expand("{projectdir}/results/{project}_output.txt",projectdir=projectdir,project=project),
+    output:
+        horvathprediction=expand("{projectdir}/results/{project}_horvath_predictedsexandepiage.csv",projectdir=projectdir,project=project),
+    shell:
+        "Rscript scripts/5_horvath_predictAgeSex.r {input.logfile} {input.rawunfiltered} {output.horvathprediction}"
